@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consulta de Volumen</title>
+<style>
+body {
+    text-align: center;
+    font-family: Segoe UI, Tahoma, Geneva, Verdana, sans-serif;
+    background: url('fondo_burbujas_gris.png') no-repeat center center fixed;
+    background-size: cover;
+    padding: 20px;
+    color: #333;
+    margin: 0;
+}
+.negrita {
+    font-weight: bold;
+}
+#resultado, #capacidadTexto, #porcentajeTexto, #volumenVacioTexto, #estadoTanqueTexto {
+    text-align: center;
+    font-size: 0.9em;
+    margin: 2px 0;
+}
+#capacidadTexto {
+    margin-top: 20px; /* Espacio extra arriba */
+}
+.container {
+    background: #f9f9f9;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    max-width: 800px;
+    margin: auto;
+}
+button, input {
+    font-size: 1em;
+    padding: 10px;
+    width: 100%;
+    max-width: 300px;
+    margin: 5px auto;
+    display: block;
+    box-sizing: border-box;
+}
+select {
+    padding: 8px;
+    width: 100%;
+    max-width: 320px;
+    margin: 10px auto;
+    display: block;
+    box-sizing: border-box;
+}
+#gaugeContainer {
+    position: relative;
+    width: 150px;
+    height: 150px;
+    margin: 20px auto;
+}
+@media (max-width: 600px) {
+  .container {
+    padding: 15px;
+    max-width: 100%;
+  }
+  h2 {
+    font-size: 1.3em;
+  }
+  #gaugeContainer {
+    width: 120px;
+    height: 120px;
+  }
+}
+</style>
+</head>
+<body>
+<div class="container">
+<div style="text-align:center;margin-bottom:20px;"><img src="LOGO_TANK_APPLICATION.png" alt="Logo RAYGAS" style="max-width:200px; width: 100%;"></div><h2>CONSULTA DE STOCK POR VARILLAJE</h2>
+<label for="selectorTabla">Selecciona un tanque:</label>
+<select id="selectorTabla" onchange="cargarTabla()">
+<option value="">-- Cargando tablas... --</option>
+</select>
+<div style="text-align:center;"><p><strong id="nombreTanque">Tanque no seleccionado</strong></p></div>
+<label for="altura">Altura (mm):</label>
+<input id="altura" placeholder="Ej. 100, 150.5, 2460" type="number"/>
+<button onclick="consultarVolumen()">Consultar volumen</button>
+<p id="capacidadTexto" class="centrado">Capacidad máxima: -- galones</p>
+<p id="resultado" class="negrita centrado">Selecciona una tanque.</p>
+<p id="porcentajeTexto" class="negrita centrado"></p>
+<p id="volumenVacioTexto" class="centrado"><span style="display:none;" id="volumenVacioSpan">Volumen vacío: -- galones</span></p>
+<p id="estadoTanqueTexto" class="centrado">Estado de tanque: --</p>
+<div id="gaugeContainer">
+  <div id="gaugeCircle" style="border-radius:50%;background:#eee;overflow:hidden;width:100%;height:100%;position:relative;">
+    <div id="gaugeFill" style="position:absolute;bottom:0;width:100%;background:blue;height:0%;transition:height 1s;"></div>
+    <div id="gaugeText" style="color:black;text-shadow:1px 0 white, -1px 0 white,0 1px white, 0 -1px white;text-align:center;margin:auto;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:bold;width:100%;height:100%;position:absolute;top:0;left:0">
+        0 gal
+    </div>
+  </div>
+</div>
+
+<!-- NUEVA CURVA MM-GALONES -->
+<div style="width:100%; max-width: 600px; margin: 30px auto;">
+    <canvas id="curveChart"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const coloresTanques = ["blue", "green", "orange", "purple", "teal", "red", "brown", "magenta", "navy", "darkgreen"];
+    let tabla = {}, interpolarVolumen = null, configGlobal = [];
+
+    function Spline(x, y) {
+      const n = x.length, a = y.slice(), b = [], d = [], h = [], alpha = [];
+      for (let i = 0; i < n - 1; i++) h[i] = x[i + 1] - x[i], alpha[i] = (a[i + 1] - a[i]) / h[i];
+      const c = new Array(n).fill(0), l = new Array(n).fill(1), mu = new Array(n).fill(0), z = new Array(n).fill(0);
+      for (let i = 1; i < n - 1; i++) {
+        l[i] = 2 * (x[i + 1] - x[i - 1]) - h[i - 1] * mu[i - 1];
+        mu[i] = h[i] / l[i];
+        z[i] = (3 * (alpha[i] - alpha[i - 1]) - h[i - 1] * z[i - 1]) / l[i];
+      }
+      const cF = [], bF = [], dF = []; cF[n - 1] = 0;
+      for (let j = n - 2; j >= 0; j--) {
+        cF[j] = z[j] - mu[j] * cF[j + 1];
+        bF[j] = (a[j + 1] - a[j]) / h[j] - h[j] * (cF[j + 1] + 2 * cF[j]) / 3;
+        dF[j] = (cF[j + 1] - cF[j]) / (3 * h[j]);
+      }
+      return function (xi) {
+        let i = x.length - 2;
+        for (let j = 0; j < x.length - 1; j++) if (xi >= x[j] && xi <= x[j + 1]) { i = j; break; }
+        const dx = xi - x[i];
+        return a[i] + bF[i] * dx + cF[i] * dx ** 2 + dF[i] * dx ** 3;
+      };
+    }
+
+    function resetUI(maxVolGalonesText = "--") {
+      document.getElementById("altura").value = "";
+      document.getElementById("resultado").textContent = "Tabla cargada. Ingresa una altura para consultar.";
+      document.getElementById("porcentajeTexto").textContent = "Porcentaje de llenado: --";
+      document.getElementById("estadoTanqueTexto").textContent = "Estado de tanque: --";
+      document.getElementById("volumenVacioTexto").innerHTML =
+        '<span id="volumenVacioSpan" style="display:none;">Volumen vacío: -- galones</span>';
+      document.getElementById("capacidadTexto").textContent =
+        "Capacidad máxima: " + maxVolGalonesText + " galones";
+      document.getElementById("gaugeFill").style.height = "0%";
+      document.getElementById("gaugeText").textContent = "0 gal";
+    }
+
+    fetch("config.json").then(r => r.json()).then(cfg => {
+      configGlobal = cfg.tablas;
+      const sel = document.getElementById("selectorTabla");
+      sel.innerHTML = '<option value="">-- Selecciona una tabla --</option>';
+      cfg.tablas.forEach(t => {
+        const opt = document.createElement("option");
+        opt.value = t.archivo;
+        opt.textContent = t.nombre;
+        sel.appendChild(opt);
+      });
+    });
+
+    function cargarTabla() {
+      const archivo = document.getElementById("selectorTabla").value;
+      if (!archivo) return;
+      fetch(archivo).then(r => r.json()).then(data => {
+        tabla = data;
+        const x = Object.keys(data).map(Number), y = x.map(k => data[k]);
+        interpolarVolumen = Spline(x, y);
+        const i = document.getElementById("selectorTabla").selectedIndex - 1;
+        const color = coloresTanques[i] || "blue";
+
+        document.getElementById("nombreTanque").textContent = configGlobal[i].nombre;
+        const maxVol = Math.max(...x.map(k => data[k]));
+        resetUI(maxVol.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+        document.getElementById("gaugeFill").style.backgroundColor = color;
+
+        // Crear/actualizar el gráfico sin leyenda pero con tooltip en galones
+        const ctx = document.getElementById('curveChart').getContext('2d');
+        if (window.curveChartInstance) window.curveChartInstance.destroy();
+        window.curveChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: x,
+                datasets: [{
+                    data: y,
+                    borderColor: color,
+                    backgroundColor: 'rgba(0,0,0,0)',
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.parsed.y.toFixed(2) + " gal";
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Altura (mm)' } },
+                    y: { title: { display: true, text: 'Volumen (galones)' } }
+                }
+            }
+        });
+      });
+    }
+
+    function consultarVolumen() {
+      const altura = parseFloat(document.getElementById("altura").value.trim());
+      if (isNaN(altura)) return document.getElementById("resultado").textContent = "Ingresa una altura válida.";
+      if (!interpolarVolumen) return document.getElementById("resultado").textContent = "Selecciona primero una tabla.";
+      const keys = Object.keys(tabla).map(Number), min = Math.min(...keys), max = Math.max(...keys);
+      if (altura < min || altura > max) return document.getElementById("resultado").textContent = `Altura fuera de rango (${min} - ${max} mm).`;
+      const volumen = interpolarVolumen(altura);
+      document.getElementById("resultado").textContent = `Volumen de producto: ${volumen.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} galones.`;
+      const fill = document.getElementById("gaugeFill"), text = document.getElementById("gaugeText");
+      const maxVol = Math.max(...keys.map(k => tabla[k]));
+      const heightPercent = Math.min((volumen / maxVol) * 100, 100);
+      const color = coloresTanques[document.getElementById("selectorTabla").selectedIndex - 1] || "blue";
+      fill.style.height = heightPercent + "%";
+      fill.style.backgroundColor = color;
+      text.textContent = volumen.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " gal";
+      document.getElementById("porcentajeTexto").textContent = "Porcentaje de llenado: " + heightPercent.toFixed(1) + "%";
+      const volumenVacio = maxVol - volumen;
+      document.getElementById("volumenVacioTexto").innerHTML = "<span id=\"volumenVacioSpan\">Volumen vacío: " + volumenVacio.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " galones</span>";
+      document.getElementById("capacidadTexto").textContent = "Capacidad máxima: " + maxVol.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " galones";
+
+      let estado = "";
+      if (heightPercent >= 90) estado = "VOLUMEN SOBRELLENADO";
+      else if (heightPercent >= 80) estado = "VOLUMEN ALTO";
+      else if (heightPercent >= 30) estado = "NORMAL";
+      else if (heightPercent >= 15) estado = "VOLUMEN BAJO";
+      else if (heightPercent >= 5) estado = "VOLUMEN CRITICO";
+      else estado = "FALTA DE PRODUCTO";
+      document.getElementById("estadoTanqueTexto").textContent =
+          "Estado de tanque: " + estado;
+    }
+</script>
+
+<p style="margin-top:20px; font-size:0.6em; color:#555; text-align:center;">© 2025 RAYGAS SAC. Todos los derechos reservados.<br>El software, la herramienta de cálculo y diseño mostrados en esta página web son propiedad intelectual de IMPORTACIONES RAYGAS SAC.<br><img src="LOGO_RAYGAS_GRIS.png" alt="Logo RAYGAS" style="max-width:60px; display:block; margin:10px auto 0 auto;"></p>
+</div>
+</body>
+</html>

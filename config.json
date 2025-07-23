@@ -1,0 +1,16 @@
+{
+  "tablas": [
+    {
+      "nombre": "DIESEL",
+      "archivo": "tabla_tanque_1.json"
+    },
+    {
+      "nombre": "REGULAR",
+      "archivo": "tabla_tanque_2.json"
+    },
+    {
+      "nombre": "PREMIUM",
+      "archivo": "tabla_tanque_3.json"
+    }
+  ]
+}
